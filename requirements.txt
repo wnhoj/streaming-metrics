@@ -4,6 +4,8 @@ dash-bootstrap-components==1.6.0
 gunicorn==22.0.0
 notebook==7.2.1
 pandas==2.2.2
+psycopg2-binary==2.9.9
 pyarrow==16.1.0
 python-dotenv==1.0.1
+sqlalchemy==2.0.31
 tqdm==4.66.4
