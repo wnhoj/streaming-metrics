@@ -2,6 +2,7 @@
 ---
 This is a Plotly Dash application for comparing the content catalogs of different streaming platforms in the United States. Drill down to identify which platforms are best for a given genre, language, etc. The data is sourced from (but not endorsed by!) the [TMDB API](https://developer.themoviedb.org/docs/getting-started) and the [Watchmode API](https://api.watchmode.com/). Data is refreshed every two weeks (the most frequent I can get away with without paying). If you are interested in running the app locally, this repository includes a demo_data.parquet file that contains a subset of data
 
+![Data Flow Diagram](assets/diagram.png)
 
 #### Built With
 ---
@@ -9,6 +10,7 @@ This is a Plotly Dash application for comparing the content catalogs of differen
 - [Plotly](https://plotly.com/python/)
 - [Dash Bootstrap Components](https://dash-bootstrap-components.opensource.faculty.ai/)
 - [Pandas](https://pandas.pydata.org/)
+- [Black](https://github.com/psf/black)
 
 
 #### Deployment

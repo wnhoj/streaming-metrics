@@ -14,26 +14,28 @@ from layout.filters import filters
 from layout.dashboard import dashboard
 from layout.about import about
 
-from utils import *
+from utils.DataConnector import DataConnector
+
 
 if os.environ.get("ENVIRONMENT") == "heroku":
     database_url = os.environ.get("DATABASE_URL")
-    engine = create_engine(database_url.replace("postgres://", "postgresql://"))
-    data = pd.read_sql(
-        """
-        SELECT *
-        FROM demo
-        """, 
-        engine
+    data_connector = DataConnector(
+        demo=False, database_url=database_url.replace("postgres://", "postgresql://")
     )
+    initial_platforms = [
+        "Netflix",
+        "Prime Video",
+        "Hulu",
+        "Peacock Premium",
+        "AppleTV+",
+        "Disney+",
+        "Max",
+        "Crunchyroll Premium",
+    ]
 else:
-    data = pd.read_parquet("demo_data.parquet")
+    data_connector = DataConnector(demo=True, database_url=None)
+    initial_platforms = ["Peacock Premium", "Hulu", "Disney+", "Max"]
 
-with open("assets/language_codes.json", "r") as f:
-    language_codes = json.load(f)
-
-with open("assets/country_codes.json", "r") as f:
-    country_codes = json.load(f)
 
 app = Dash(
     __name__,
@@ -127,45 +129,26 @@ def show_about_modal(n):
 # Filter callbacks (initialization, storing, clearing)
 @app.callback(Output("platform", "options"), Input("platform", "id"))
 def populate_platform_options(_):
-    platforms = data.streaming_source_name.unique()
-    return [{"label": i, "value": i} for i in sorted(platforms)]
+    platforms = data_connector.get_available_platforms()
+    return [{"label": i, "value": i} for i in sorted(platforms.platform)]
 
 
 @app.callback(Output("language", "options"), Input("language", "id"))
 def populate_language_options(_):
-    languages = data.original_language.dropna().unique()
-    return [
-        (
-            {"label": language_codes.get(i), "value": i}
-            if i in language_codes
-            else {"label": i, "value": i}
-        )
-        for i in sorted(languages)
-    ]
+    languages = data_connector.get_available_languages()
+    return [{"label": i, "value": i} for i in sorted(languages.language)]
 
 
 @app.callback(Output("genre", "options"), Input("genre", "id"))
 def populate_genre_options(_):
-    genres = [col.replace("genre_", "") for col in data.columns if "genre_" in col]
-    return [{"label": i, "value": i} for i in sorted(genres)]
+    genres = data_connector.get_available_genres()
+    return [{"label": i, "value": i} for i in sorted(genres.genre)]
 
 
 @app.callback(Output("country", "options"), Input("country", "id"))
 def populate_country_options(_):
-    countries = [
-        col.replace("country_", "") for col in data.columns if "country_" in col
-    ]
-    countries = sorted(
-        countries, key=lambda x: country_codes.get(x) if x in country_codes else "Zzzz"
-    )
-    return [
-        (
-            {"label": country_codes.get(i), "value": i}
-            if i in country_codes
-            else {"label": i, "value": i}
-        )
-        for i in countries
-    ]
+    countries = data_connector.get_available_countries()
+    return [{"label": i, "value": i} for i in sorted(countries.country)]
 
 
 @app.callback(
@@ -204,7 +187,7 @@ def update_filters_store(
 )
 def clear_all_filters(n):
     if n == 0:
-        raise dash.exceptions.PreventUpdate()
+        return [["Movie", "TV"], initial_platforms, [0, 10], [1902, 2024], [], [], []]
     return [["Movie", "TV"], [], [0, 10], [1902, 2024], [], [], []]
 
 
@@ -221,8 +204,7 @@ def change_tooltip_message(is_open):
     Input("filters-store", "data"),
 )
 def display_platform_count(filters):
-    filtered = filter_data(data, filters)
-    return filtered.streaming_source_name.nunique()
+    return data_connector.get_platform_count(filters)
 
 
 @app.callback(
@@ -230,8 +212,7 @@ def display_platform_count(filters):
     Input("filters-store", "data"),
 )
 def display_movie_count(filters):
-    filtered = filter_data(data, filters)
-    return f"{filtered[filtered.tmdb_type == 'movie'].tmdb_id.nunique():,}"
+    return f"{data_connector.get_movie_count(filters):,}"
 
 
 @app.callback(
@@ -239,8 +220,7 @@ def display_movie_count(filters):
     Input("filters-store", "data"),
 )
 def display_tv_count(filters):
-    filtered = filter_data(data, filters)
-    return f"{filtered[filtered.tmdb_type == 'tv'].tmdb_id.nunique():,}"
+    return f"{data_connector.get_tv_count(filters):,}"
 
 
 # Figure callbacks
@@ -249,34 +229,23 @@ def display_tv_count(filters):
     Input("filters-store", "data"),
 )
 def summary_figure(filters):
-    filtered = filter_data(data, filters)
-    filtered = (
-        filtered.groupby("streaming_source_name")
-        .agg(
-            {
-                "tmdb_id": "count",
-                "popularity": lambda x: round(np.mean(x), 2),
-                "vote_average": lambda x: round(np.mean(x), 2),
-            }
-        )
-        .reset_index()
-    )
-    filtered.columns = [
-        "Platform",
-        "Title Count",
-        "Average Popularity",
-        "Average Rating",
-    ]
+    data = data_connector.get_overview_data(filters)
 
     figure = px.scatter(
-        filtered,
-        x="Title Count",
-        y="Average Rating",
-        size="Average Popularity",
-        color="Average Popularity",
-        hover_name="Platform",
+        data,
+        x="title_count",
+        y="average_rating",
+        size="average_popularity",
+        color="average_popularity",
+        hover_name="platform",
         template="plotly_white",
         color_continuous_scale="dense",
+        labels={
+            "platform": "Platform",
+            "title_count": "Title Count",
+            "average_rating": "Average Rating",
+            "average_popularity": "Average Popularity",
+        },
     )
 
     return figure
@@ -287,38 +256,22 @@ def summary_figure(filters):
     Input("filters-store", "data"),
 )
 def title_count_figure(filters):
-    filtered = filter_data(data, filters)
-    platform_order = (
-        filtered.streaming_source_name.value_counts().index.tolist()
-    )  # consistent order across figures
-
-    filtered = (
-        filtered.groupby(["streaming_source_name"])
-        .agg(
-            {
-                "tmdb_type": [
-                    lambda x: (x == "movie").sum(),
-                    lambda x: (x == "tv").sum(),
-                ],
-                "tmdb_id": "count",
-            }
-        )
-        .reset_index()
-    )
-    filtered.columns = ["Platform", "Movies", "TV Shows", "Total"]
-    filtered.sort_values("Total", ascending=True, inplace=True)
+    data = data_connector.get_title_count_data(filters)
+    platform_order = [
+        i for i in data_connector.platform_order if i in set(data.platform)
+    ]
 
     figure = go.Figure(
         data=[
             go.Bar(
-                y=filtered.Movies,
-                x=filtered.Platform,
+                y=data.movies,
+                x=data.platform,
                 name="Movies",
                 marker={"opacity": 0.9},
             ),
             go.Bar(
-                y=filtered["TV Shows"],
-                x=filtered.Platform,
+                y=data.tv,
+                x=data.platform,
                 name="TV Shows",
                 marker={"opacity": 0.9},
             ),
@@ -329,9 +282,9 @@ def title_count_figure(filters):
             margin={"t": 0, "b": 0},
             yaxis={"title": "Title Count"},
             xaxis={
+                "tickangle": 45,
                 "categoryorder": "array",
                 "categoryarray": platform_order,
-                "tickangle": 45,
             },
             colorway=np.array(px.colors.sequential.dense)[[3, -3]].tolist(),
         ),
@@ -345,19 +298,18 @@ def title_count_figure(filters):
     Input("filters-store", "data"),
 )
 def quality_figure(filters):
-    filtered = filter_data(data, filters)
-    platform_order = (
-        filtered.streaming_source_name.value_counts().index.tolist()
-    )  # consistent order across figures
+    data = data_connector.get_quality_data(filters)
+    platform_order = [
+        i for i in data_connector.platform_order if i in set(data.platform)
+    ]
 
     colors = px.colors.sequential.dense
-    colors = colors * np.ceil(
-        filtered.streaming_source_name.nunique() / len(colors)
-    ).astype(int)
+    colors = colors * np.ceil(data.platform.nunique() / len(colors)).astype(int)
+
     figure = go.Figure(
         data=[
             go.Box(
-                y=filtered[filtered.streaming_source_name == source].vote_average,
+                y=data[data.platform == source].vote_average,
                 name=source,
                 jitter=0.3,
                 boxpoints="outliers",
@@ -369,7 +321,11 @@ def quality_figure(filters):
             template="plotly_white",
             margin={"t": 0, "b": 0},
             yaxis={"title": "Rating"},
-            xaxis={"tickangle": 45},
+            xaxis={
+                "tickangle": 45,
+                "categoryorder": "array",
+                "categoryarray": platform_order,
+            },
         ),
     )
 
@@ -381,36 +337,21 @@ def quality_figure(filters):
     Input("filters-store", "data"),
 )
 def top_genre_figure(filters):
-    filtered = filter_data(data, filters)
-    platform_order = (
-        filtered.streaming_source_name.value_counts().index.tolist()
-    )  # consistent order across figures
-
-    # counts for each genre for each platform
-    filtered = filtered[
-        ["streaming_source_name"] + [i for i in filtered.columns if "genre_" in i]
+    data = data_connector.get_top_genre_data(filters)
+    platform_order = [
+        i for i in data_connector.platform_order if i in set(data.platform)
     ]
-    filtered = filtered.groupby("streaming_source_name").sum().reset_index()
-    filtered = filtered.melt(
-        id_vars=["streaming_source_name"],
-        value_vars=[i for i in filtered.columns if "genre_" in i],
-        var_name="genre",
-    )
-    # sort/grab top 3 per platform
-    filtered.sort_values("value", ascending=False, inplace=True)
-    filtered = filtered.groupby("streaming_source_name").head(3)
-    filtered.genre = filtered.genre.apply(lambda x: x.replace("genre_", ""))
 
     figure = px.bar(
-        filtered,
-        x="streaming_source_name",
-        y="value",
+        data,
+        x="platform",
+        y="title_count",
         color="genre",
         barmode="stack",
         template="plotly_white",
-        labels={"value": "Title Count", "streaming_source_name": "Platform"},
+        labels={"title_count": "Title Count", "platform": "Platform"},
         color_discrete_sequence=px.colors.sequential.dense,
-        category_orders={"streaming_source_name": platform_order},
+        category_orders={"platform": platform_order},
     )
     figure.update_layout(xaxis_title=None, xaxis_tickangle=45)
 
@@ -422,32 +363,12 @@ def top_genre_figure(filters):
     Input("filters-store", "data"),
 )
 def top_country_figure(filters):
-    filtered = filter_data(data, filters)
-
-    # counts for each country for each platform
-    filtered = filtered[
-        ["streaming_source_name", "tmdb_type"]
-        + [i for i in filtered.columns if "country_" in i]
-    ]
-    filtered = (
-        filtered.groupby(["streaming_source_name", "tmdb_type"]).sum().reset_index()
-    )
-    filtered = filtered.melt(
-        id_vars=["streaming_source_name", "tmdb_type"],
-        value_vars=[i for i in filtered.columns if "country_" in i],
-        var_name="country",
-    )
-
-    filtered.sort_values("value", ascending=False, inplace=True)
-    filtered = filtered.groupby(["streaming_source_name", "tmdb_type"]).head(3)
-    filtered.country = filtered.country.apply(
-        lambda x: country_codes.get(x.replace("country_", ""))
-    )
+    data = data_connector.get_top_country_data(filters)
 
     figure = px.treemap(
-        filtered,
-        path=[px.Constant("All"), "streaming_source_name", "tmdb_type", "country"],
-        values="value",
+        data,
+        path=[px.Constant("All"), "platform", "media_type", "country"],
+        values="title_count",
         color_discrete_sequence=px.colors.sequential.dense_r,
     )
 
@@ -458,33 +379,25 @@ def top_country_figure(filters):
     Output({"type": "graph", "index": "recent-content"}, "figure"),
     Input("filters-store", "data"),
 )
-def top_country_figure(filters):
-    filtered = filter_data(data, filters)
-    platform_order = (
-        filtered.streaming_source_name.value_counts().index.tolist()
-    )  # consistent order across figures
-
-    # titles released over the past 15 years
-    filtered = (
-        filtered[filtered.year >= 2010]
-        .groupby(["streaming_source_name", "year"])
-        .tmdb_id.count()
-        .reset_index()
-    )
+def recent_content_figure(filters):
+    data = data_connector.get_recent_content_data(filters)
+    platform_order = [
+        i for i in data_connector.platform_order if i in set(data.platform)
+    ]
 
     figure = px.bar(
-        filtered,
-        x="year",
-        y="tmdb_id",
-        color="streaming_source_name",
+        data.dropna(),
+        x="release_year",
+        y="title_count",
+        color="platform",
         barmode="group",
         template="plotly_white",
         color_discrete_sequence=px.colors.sequential.dense,
-        category_orders={"streaming_source_name": platform_order},
+        category_orders={"platform": platform_order},
         labels={
-            "streaming_source_name": "Platform",
-            "tmdb_id": "Title Count",
-            "year": "Relase Year",
+            "platform": "Platform",
+            "title_count": "Title Count",
+            "release_year": "Relase Year",
         },
     )
     return figure
