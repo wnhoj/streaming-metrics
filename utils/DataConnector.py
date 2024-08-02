@@ -325,12 +325,14 @@ class DataConnector(object):
         query = """
         SELECT *
         FROM analytics
+        WHERE date = (
+            SELECT MAX(date)
+            FROM analytics
+        )
         """
 
         if len(filters["media-type"]) == 1:
-            query += f"WHERE media_type = '{filters['media-type'][0].lower()}'"
-        else:
-            query += "WHERE media_type IN ('movie', 'tv')"
+            query += f"AND media_type = '{filters['media-type'][0].lower()}'"
 
         if len(filters["platform"]) != 0:
             if len(filters["platform"]) == 1:
@@ -384,7 +386,7 @@ class DataConnector(object):
                 AND title_id IN (
                     SELECT
                         title_id
-                    FROM analytics 
+                    FROM analytics
                     WHERE country = '{filters["country"][0]}'
                 )
                 """
