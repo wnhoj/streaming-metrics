@@ -67,9 +67,7 @@ app.layout = html.Div(
             dbc.Stack(
                 [
                     dcc.Markdown(
-                        """
-                        *Data for this app is pulled from the [TMDB API](https://developer.themoviedb.org/docs/getting-started) and the [Watchmode API](https://api.watchmode.com/)*
-                        """,
+                        "*Data for this app is pulled from the [TMDB API](https://developer.themoviedb.org/docs/getting-started) and the [Watchmode API](https://api.watchmode.com/)*",
                         link_target="_blank",
                         id="attribution",
                     ),
@@ -223,6 +221,15 @@ def display_tv_count(filters):
     return f"{data_connector.get_tv_count(filters):,}"
 
 
+@app.callback(Output("attribution", "children"), Input("attribution", "id"))
+def display_last_refresh_date(_):
+    last_refresh = data_connector.last_refreshed()
+    message = "*Data for this app is pulled from the [TMDB API](https://developer.themoviedb.org/docs/getting-started) and the [Watchmode API](https://api.watchmode.com/)*"
+    if last_refresh:
+        return message + f". Updated {last_refresh}"
+    return message
+
+
 # Figure callbacks
 @app.callback(
     Output({"type": "graph", "index": "summary"}, "figure"),
@@ -333,27 +340,48 @@ def quality_figure(filters):
 
 
 @app.callback(
-    Output({"type": "graph", "index": "top-genre"}, "figure"),
+    Output({"type": "graph", "index": "diversity"}, "figure"),
     Input("filters-store", "data"),
 )
-def top_genre_figure(filters):
-    data = data_connector.get_top_genre_data(filters)
+def diversity_figure(filters):
+    data = data_connector.get_diversity_data(filters)
+
+    colors = px.colors.sequential.dense
+    colors = colors * np.ceil(data.platform.nunique() / len(colors)).astype(int)
     platform_order = [
         i for i in data_connector.platform_order if i in set(data.platform)
     ]
+    data = data.set_index("platform").loc[platform_order, :].reset_index()
 
-    figure = px.bar(
-        data,
-        x="platform",
-        y="title_count",
-        color="genre",
-        barmode="stack",
-        template="plotly_white",
-        labels={"title_count": "Title Count", "platform": "Platform"},
-        color_discrete_sequence=px.colors.sequential.dense,
-        category_orders={"platform": platform_order},
+    figure = go.Figure(
+        data=go.Barpolar(
+            r=data.shannon.tolist(),
+            theta=data.platform.tolist(),
+            width=data.dominance.tolist(),
+            text=data.richness.tolist(),
+            marker_color=colors,
+            marker_line_color="black",
+            opacity=0.8,
+            dtheta=0,
+            hovertemplate="<b>Platform:</b> %{theta}<br><b>Shannon Diversity Index:</b> %{r}<br><b>Dominance:</b> %{width}<br><b>Richness:</b> %{text}<extra></extra>",
+        ),
+        layout=go.Layout(
+            template="plotly_white",
+            polar={
+                "radialaxis": {"range": [0, 5], "showticklabels": False, "ticks": ""}
+            },
+            margin={"t": 50, "b": 50},
+        ),
     )
-    figure.update_layout(xaxis_title=None, xaxis_tickangle=45)
+
+    # Hide labels if too many are selected
+    if len(data) > 20:
+        figure.update_layout(
+            polar={
+                "radialaxis": {"range": [0, 5], "showticklabels": False, "ticks": ""},
+                "angularaxis": {"showticklabels": False},
+            }
+        )
 
     return figure
 
