@@ -56,9 +56,9 @@ dashboard = dbc.Row(
                 [
                     dbc.Col(
                         FigureCard(
-                            "Top Genres",
-                            id="top-genre",
-                            description=figure_descriptions.get("top-genre"),
+                            "Catalog Diversity",
+                            id="diversity",
+                            description=figure_descriptions.get("diversity"),
                         ),
                         sm=12,
                         md=6,

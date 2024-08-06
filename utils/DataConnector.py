@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from sqlalchemy import create_engine
 
 
@@ -18,6 +19,16 @@ class DataConnector(object):
         if not self.demo:
             self.engine = create_engine(database_url)
         self.platform_order = self._define_platform_order(demo)
+
+    def last_refreshed(self):
+        # Returns the last date the app data was refreshed (if reading from DB)
+        if self.demo:
+            return
+        else:
+            return pd.read_sql(
+                "SELECT MAX(date) FROM analytics", 
+                self.engine
+            ).iloc[0, 0]
 
     def get_available_platforms(self):
         # Returns distinct platforms (dataframe) for filter
@@ -210,6 +221,77 @@ class DataConnector(object):
             FROM (
                 {subquery}
             )
+            """
+            return pd.read_sql(query, self.engine)
+
+    def get_diversity_data(self, filters):
+        if self.demo:
+            filtered = self._filter_demo_data(filters)
+            genre_counts = (
+                filtered.groupby(["platform", "genre"]).tmdb_id.nunique().reset_index()
+            )
+            platform_counts = (
+                filtered.groupby("platform").tmdb_id.nunique().reset_index()
+            )
+            summary = genre_counts.merge(
+                platform_counts,
+                how="left",
+                on="platform",
+                suffixes=["_genre", "_platform"],
+            )
+
+            summary["ratio"] = summary.tmdb_id_genre / summary.tmdb_id_platform
+            agg = (
+                summary.groupby("platform")
+                .agg(
+                    {
+                        "genre": "count",
+                        "ratio": [
+                            lambda x: round(x.max(), 3),
+                            lambda x: round((x * np.log(x)).sum() * -1, 3),
+                        ],
+                    }
+                )
+                .reset_index()
+            )
+            agg.columns = ["platform", "richness", "dominance", "shannon"]
+            return agg
+        else:
+            subquery = self._construct_filtered_subquery(filters)
+            query = f"""
+                    SELECT
+                        platform,
+                        ROUND(MAX(ratio),3) AS dominance,
+                        COUNT(DISTINCT genre) AS richness,
+                        ROUND(SUM(ratio * LN(ratio)) * -1,3) AS shannon
+                    FROM (
+                        SELECT 
+                            g.platform,
+                            genre,
+                            CAST(genre_count AS DECIMAL) / platform_count AS ratio
+                        FROM (
+                            SELECT 
+                                platform,
+                                genre,
+                                COUNT(DISTINCT title_id) AS genre_count
+                            FROM (
+                                {subquery}
+                            )
+                            GROUP BY 1,2
+                            ORDER BY 1,2
+                        ) g
+                        LEFT JOIN (
+                            SELECT
+                                platform,
+                                COUNT(DISTINCT title_id) AS platform_count
+                            FROM (
+                                {subquery}
+                            )
+                            GROUP BY 1
+                        ) p
+                            ON g.platform = p.platform
+                    ) sub
+                    GROUP BY 1
             """
             return pd.read_sql(query, self.engine)
 
