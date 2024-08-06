@@ -40,3 +40,9 @@
     max-height: 90%;
     overflow-y: scroll;
 }
+
+@media (max-width: 320px) {
+    h1 {
+      font-size: 1.2rem;
+    }
+  }
