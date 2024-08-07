@@ -366,6 +366,7 @@ class DataConnector(object):
                     FROM (
                         {subquery}
                     )
+                    WHERE country IS NOT NULL
                     GROUP BY 1,2,3
                     ORDER BY 3 DESC
                 )
