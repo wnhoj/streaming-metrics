@@ -1,5 +1,7 @@
 ### Streaming-Metrics
 ---
+[Link to App](https://stream-metrics-b5f68d63e431.herokuapp.com/)
+
 This is a Plotly Dash application for comparing the content catalogs of different streaming platforms in the United States. Drill down to identify which platforms are best for a given genre, language, etc. The data is sourced from (but not endorsed by!) the [TMDB API](https://developer.themoviedb.org/docs/getting-started) and the [Watchmode API](https://api.watchmode.com/). Data is refreshed every two weeks (the most frequent I can get away with without paying). If you are interested in running the app locally, this repository includes a demo_data.parquet file that contains a subset of data
 
 ![Data Flow Diagram](assets/diagram.png)
