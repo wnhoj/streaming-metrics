@@ -416,7 +416,8 @@ class DataConnector(object):
                         SELECT DISTINCT
                             platform,
                             date,
-                            title_id
+                            media_type,
+                            tmdb_id
                         FROM last_two_dates
                         WHERE date = (
                             SELECT MAX(date)
@@ -426,7 +427,8 @@ class DataConnector(object):
                         SELECT DISTINCT
                             platform,
                             date,
-                            title_id
+                            media_type,
+                            tmdb_id
                         FROM last_two_dates
                         WHERE date = (
                             SELECT DISTINCT date
@@ -438,32 +440,46 @@ class DataConnector(object):
                     ), comparison AS (
                         SELECT 
                             COALESCE(current.platform, previous.platform) AS platform,
+                            COALESCE(current.media_type, previous.media_type) AS media_type,
                             CASE 
-                                WHEN current.title_id IS NULL THEN 0
+                                WHEN current.tmdb_id IS NULL THEN 0
                                 ELSE 1
                             END AS in_current,
                             CASE 
-                                WHEN previous.title_id IS NULL THEN 0
+                                WHEN previous.tmdb_id IS NULL THEN 0
                                 ELSE 1
                             END AS in_previous
                         FROM current
                         FULL OUTER JOIN previous
                             ON current.platform = previous.platform
-                            AND current.title_id = previous.title_id
+                            AND current.tmdb_id = previous.tmdb_id
+                            AND current.media_type = previous.media_type
+                    ), gain_loss AS (
+                        SELECT 
+                            platform,
+                            SUM(CASE 
+                                WHEN media_type = 'movie' AND in_current = 1 AND in_previous = 0 THEN 1
+                                ELSE 0
+                            END) AS movie_gained,
+                            -1 * SUM(CASE 
+                                WHEN media_type = 'movie' AND in_current = 0 AND in_previous = 1 THEN 1
+                                ELSE 0
+                            END) AS movie_lost,
+                            SUM(CASE 
+                                WHEN media_type = 'tv' AND in_current = 1 AND in_previous = 0 THEN 1
+                                ELSE 0
+                            END) AS tv_gained,
+                            -1 * SUM(CASE 
+                                WHEN media_type = 'tv' AND in_current = 0 AND in_previous = 1 THEN 1
+                                ELSE 0
+                            END) AS tv_lost
+                        FROM comparison
+                        GROUP BY platform
                     )
-                    SELECT 
-                        platform,
-                        SUM(CASE 
-                            WHEN in_current = 1 AND in_previous = 0 THEN 1
-                            ELSE 0
-                        END) AS gained,
-                        -1 * SUM(CASE
-                            WHEN in_previous = 1 AND in_current = 0 THEN 1
-                            ELSE 0
-                        END) AS lost
-                    FROM comparison
-                    GROUP BY platform
-                    ORDER BY platform
+                    SELECT
+                        *,
+                        movie_gained + movie_lost + tv_gained + tv_lost AS net_change
+                    FROM gain_loss
             """
             return pd.read_sql(query, self.engine)
 

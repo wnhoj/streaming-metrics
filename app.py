@@ -412,38 +412,66 @@ def recent_content_figure(filters):
     platform_order = [
         i for i in data_connector.platform_order if i in set(data.platform)
     ]
-    data = data.melt(
-        id_vars='platform',
-        value_vars=['gained', 'lost'],
-        var_name='gain_or_loss',
-        value_name='title_count'
-    )
 
-    figure = px.bar(
-        data,
-        x='platform',
-        y='title_count',
-        color='gain_or_loss',
-        labels={
-            'title_count' : 'Title Count',
-            'platform' : 'Platform',
-            'gain_or_loss' : 'Gained/Lost'
-        },
-        hover_data=['title_count'],
-        template='plotly_white',
-        color_discrete_map={
-            'lost' : px.colors.sequential.dense[-5],
-            'gained' : px.colors.sequential.dense[4]
-        },
-        category_orders={
-            'platform' : platform_order
-        },
+    platforms = pd.Series(platform_order)
+    data.set_index('platform', inplace=True)
+
+    figure = go.Figure(
+        data=[
+            go.Bar(
+                x=platforms,
+                y=platforms.apply(lambda x: data.loc[x, 'net_change'] if x in data.index else 0),
+                marker={'color' : 'white', 'opacity' : 0},
+                name='Net Change',
+                hovertemplate='<b>Net Change: %{y}</b><extra></extra>'
+            ),
+            go.Bar(
+                x=platforms,
+                y=platforms.apply(lambda x: data.loc[x, 'movie_gained'] if x in data.index else 0),
+                width=0.4,
+                offset=-0.4,
+                name='Movies Gained',
+                marker={'color' : px.colors.sequential.dense[4]}
+            ),
+            go.Bar(
+                x=platforms,
+                y=platforms.apply(lambda x: data.loc[x, 'movie_lost'] if x in data.index else 0),
+                width=0.4,
+                offset=-0.4,
+                name='Movies Lost',
+                marker={'color' : px.colors.sequential.dense[2]}
+            ),
+            go.Bar(
+                x=platforms,
+                y=platforms.apply(lambda x: data.loc[x, 'tv_gained'] if x in data.index else 0),
+                width=0.4,
+                offset=0,
+                name='TV Gained',
+                marker={'color' : px.colors.sequential.dense[-5]}
+            ),
+            go.Bar(
+                x=platforms,
+                y=platforms.apply(lambda x: data.loc[x, 'tv_lost'] if x in data.index else 0),
+                width=0.4,
+                offset=0,
+                name='TV Lost',
+                marker={'color' : px.colors.sequential.dense[-3]}
+            ), 
+        ],
+        layout=go.Layout(
+            showlegend=False,
+            xaxis={
+                'title' : 'Platform',
+                'ticktext' : platforms,
+                'tickangle' : 45
+            },
+            yaxis={
+                'title' : 'Title Count'
+            },
+            template='plotly_white',
+            hovermode='x unified',
+        )
     )
-    figure.update_layout(
-        showlegend=False,
-        hovermode='x unified'
-    )
-    figure.update_xaxes(tickangle=45)
 
     return figure
 
