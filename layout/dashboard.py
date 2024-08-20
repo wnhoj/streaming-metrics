@@ -79,9 +79,9 @@ dashboard = dbc.Row(
                 [
                     dbc.Col(
                         FigureCard(
-                            "Recent Content",
-                            id="recent-content",
-                            description=figure_descriptions.get("recent-content"),
+                            "2 Week Catalog Change",
+                            id="growth",
+                            description=figure_descriptions.get("growth"),
                         ),
                         sm=12,
                         md=12,

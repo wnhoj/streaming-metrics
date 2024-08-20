@@ -404,30 +404,47 @@ def top_country_figure(filters):
 
 
 @app.callback(
-    Output({"type": "graph", "index": "recent-content"}, "figure"),
+    Output({"type": "graph", "index": "growth"}, "figure"),
     Input("filters-store", "data"),
 )
 def recent_content_figure(filters):
-    data = data_connector.get_recent_content_data(filters)
+    data = data_connector.get_change_data(filters)
     platform_order = [
         i for i in data_connector.platform_order if i in set(data.platform)
     ]
+    data = data.melt(
+        id_vars='platform',
+        value_vars=['gained', 'lost'],
+        var_name='gain_or_loss',
+        value_name='title_count'
+    )
 
     figure = px.bar(
-        data.dropna(),
-        x="release_year",
-        y="title_count",
-        color="platform",
-        barmode="group",
-        template="plotly_white",
-        color_discrete_sequence=px.colors.sequential.dense,
-        category_orders={"platform": platform_order},
+        data,
+        x='platform',
+        y='title_count',
+        color='gain_or_loss',
         labels={
-            "platform": "Platform",
-            "title_count": "Title Count",
-            "release_year": "Relase Year",
+            'title_count' : 'Title Count',
+            'platform' : 'Platform',
+            'gain_or_loss' : 'Gained/Lost'
+        },
+        hover_data=['title_count'],
+        template='plotly_white',
+        color_discrete_map={
+            'lost' : px.colors.sequential.dense[-5],
+            'gained' : px.colors.sequential.dense[4]
+        },
+        category_orders={
+            'platform' : platform_order
         },
     )
+    figure.update_layout(
+        showlegend=False,
+        hovermode='x unified'
+    )
+    figure.update_xaxes(tickangle=45)
+
     return figure
 
 

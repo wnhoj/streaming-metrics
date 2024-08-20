@@ -402,17 +402,96 @@ class DataConnector(object):
             """
             return pd.read_sql(query, self.engine)
 
-    def _construct_filtered_subquery(self, filters):
+    def get_change_data(self, filters):
+        if self.demo:
+            # Need to update the demo data to include multiple weeks 
+            return
+        else:
+            subquery = self._construct_filtered_subquery(filters, two_dates=True)
+            query = f"""
+                    WITH last_two_dates AS (
+                        {subquery}
+                    ),
+                    current AS (
+                        SELECT DISTINCT
+                            platform,
+                            date,
+                            title_id
+                        FROM last_two_dates
+                        WHERE date = (
+                            SELECT MAX(date)
+                            FROM last_two_dates
+                        )
+                    ), previous AS (
+                        SELECT DISTINCT
+                            platform,
+                            date,
+                            title_id
+                        FROM last_two_dates
+                        WHERE date = (
+                            SELECT DISTINCT date
+                            FROM last_two_dates
+                            ORDER BY date DESC
+                            LIMIT 1
+                            OFFSET 1
+                        )
+                    ), comparison AS (
+                        SELECT 
+                            COALESCE(current.platform, previous.platform) AS platform,
+                            CASE 
+                                WHEN current.title_id IS NULL THEN 0
+                                ELSE 1
+                            END AS in_current,
+                            CASE 
+                                WHEN previous.title_id IS NULL THEN 0
+                                ELSE 1
+                            END AS in_previous
+                        FROM current
+                        FULL OUTER JOIN previous
+                            ON current.platform = previous.platform
+                            AND current.title_id = previous.title_id
+                    )
+                    SELECT 
+                        platform,
+                        SUM(CASE 
+                            WHEN in_current = 1 AND in_previous = 0 THEN 1
+                            ELSE 0
+                        END) AS gained,
+                        -1 * SUM(CASE
+                            WHEN in_previous = 1 AND in_current = 0 THEN 1
+                            ELSE 0
+                        END) AS lost
+                    FROM comparison
+                    GROUP BY platform
+                    ORDER BY platform
+            """
+            return pd.read_sql(query, self.engine)
+
+    def _construct_filtered_subquery(self, filters, two_dates=False):
         # Uses the dcc.Store filters data to construct a query string for a filtered view of the analytics data
         # The other query methods will all use this subquery as a starting point for pulling/aggregating data
-        query = """
-        SELECT *
-        FROM analytics
-        WHERE date = (
-            SELECT MAX(date)
+        # two_dates indicates whether the query should read from the most recent date of data, or the two 
+        # most recent dates. This is used for the comparing changes over the last two weeks
+        if two_dates:
+            query = """
+            SELECT *
             FROM analytics
-        )
-        """
+            WHERE date in (
+                SELECT DISTINCT date
+                FROM analytics
+                ORDER BY date desc
+                LIMIT 2
+            )
+            """
+        else:
+            query = """
+            SELECT *
+            FROM analytics
+            WHERE date = (
+                SELECT MAX(date)
+                FROM analytics
+            )
+            """
 
         if len(filters["media-type"]) == 1:
             query += f"AND media_type = '{filters['media-type'][0].lower()}'"
