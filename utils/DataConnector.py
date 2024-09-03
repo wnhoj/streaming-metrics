@@ -404,8 +404,45 @@ class DataConnector(object):
 
     def get_change_data(self, filters):
         if self.demo:
-            # Need to update the demo data to include multiple weeks 
-            return
+            filtered = self._filter_demo_data(filters, two_dates=True)
+            filtered = filtered[['platform', 'date', 'media_type', 'tmdb_id']].drop_duplicates()
+            prev = filtered[filtered.date == filtered.date.min()]
+            current = filtered[filtered.date == filtered.date.max()]
+
+            comparison = current.merge(
+                prev,
+                how='outer',
+                on=['platform', 'media_type', 'tmdb_id'],
+                suffixes = ['_current', '_prev']
+            )
+            comparison.date_current = (~comparison.date_current.isnull())
+            comparison.date_prev = (~comparison.date_prev.isnull())
+
+            agg = comparison.groupby(['platform', 'media_type', 'date_prev', 'date_current']).count().reset_index()
+
+            min_date = filtered.date.min()
+            max_date = filtered.date.max()
+
+            comparison = filtered.groupby(['platform', 'media_type', 'tmdb_id']).agg({
+                'date' : [
+                    lambda x: min_date in set(x),
+                    lambda x: max_date in set(x)
+                ]
+            }).reset_index()
+            comparison.columns = ['platform', 'media_type', 'tmdb_id', 'in_previous', 'in_current']
+
+            comparison['gained'] = ~comparison.in_previous & comparison.in_current
+            comparison['lost'] = comparison.in_previous & ~comparison.in_current
+            agg = comparison.groupby(['platform', 'media_type'])[['gained', 'lost']].sum().reset_index()
+            agg = agg.pivot(index='platform', columns='media_type', values=['lost', 'gained']).reset_index()
+            agg.columns = [ f'{i[1]}_{i[0]}' if i[1] != '' else i[0] for i in 
+                agg.columns
+            ]
+            agg.movie_lost = agg.movie_lost * -1
+            agg.tv_lost = agg.tv_lost * -1
+            agg['net_change'] = agg.movie_gained + agg.tv_gained + agg.movie_lost + agg.tv_lost
+
+            return agg
         else:
             subquery = self._construct_filtered_subquery(filters, two_dates=True)
             query = f"""
@@ -586,7 +623,7 @@ class DataConnector(object):
 
         return query
 
-    def _filter_demo_data(self, filters):
+    def _filter_demo_data(self, filters, two_dates=False):
         if len(filters["media-type"]) == 1:
             media_filter = self.demo_data.media_type == filters["media-type"][0].lower()
         else:
@@ -630,6 +667,11 @@ class DataConnector(object):
         else:
             language_filter = pd.Series(True, index=self.demo_data.index)
 
+        if two_dates:
+            date_filter = pd.Series(True, index=self.demo_data.index)
+        else:
+            date_filter = self.demo_data.date == self.demo_data.date.max()
+
         return self.demo_data[
             (media_filter)
             & (platform_filter)
@@ -638,6 +680,7 @@ class DataConnector(object):
             & (genre_filter)
             & (country_filter)
             & (language_filter)
+            & (date_filter)
         ]
 
     def _load_demo_data(self, demo):
